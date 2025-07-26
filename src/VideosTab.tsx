@@ -72,14 +72,14 @@ export default function App() {
       formData.append('extras', JSON.stringify(listing.extras));
       
       // Add grouping information for video layout
-      const grouping = layout === "premium"
-        ? [
-            { files: [0, 1] },
-            { files: [2] },
-            { files: [3, 4] },
-            { files: [5] },
-            { files: [6] }
-          ]
+   const grouping = layout === "premium"
+  ? [
+      { files: [0, 1] },    // First keyframe pair
+      { files: [2, 3] },    // Second keyframe pair  
+      { files: [4] },       // Single image
+      { files: [5] },       // Single image
+      { files: [6] }        // Single image
+    ]
         : slots.map((_, i) => ({ files: [i] }));
       
       formData.append('grouping', JSON.stringify(grouping));
