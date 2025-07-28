@@ -1,68 +1,120 @@
-import React, { useState, useEffect, useCallback } from "react";
-import {
-  Upload, X, Film, Sparkles, Layers, Plus, Loader2, CheckCircle2,
-  Home, DollarSign, MapPin, Ruler, Bed, Bath
-} from "lucide-react";
-import clsx from "clsx";
+import React, { useState, useEffect, useCallback } from 'react';
+import { Upload, X, Film, Sparkles, Layers, Plus, Loader2, CheckCircle2, Home, DollarSign, MapPin, Ruler, Bed, Bath, Image, Play } from 'lucide-react';
 
-type Layout = "standard" | "premium";
-interface Slot { id:string; file:File|null; url:string|null; }
-interface Listing { title:string; price:string; location:string; size:string; beds:string; baths:string; extras:string[]; }
+const WEBHOOK = "https://hook.eu2.make.com/your-webhook-here"; // Replace with actual webhook
 
-const WEBHOOK = import.meta.env.VITE_MAKE_WEBHOOK;
-
-if (!WEBHOOK) {
-  console.error('VITE_MAKE_WEBHOOK environment variable is not set');
+interface Slot {
+  id: string;
+  mode: 'image-to-video' | 'frame-to-frame';
+  file1: File | null;
+  file2: File | null;
+  url1: string | null;
+  url2: string | null;
 }
 
-export default function App() {
-  const [layout,setLayout]=useState<Layout>("standard");
-  const [slots,setSlots]=useState<Slot[]>([]);
-  const [listing,setListing]=useState<Listing>({title:"",price:"",location:"",size:"",beds:"",baths:"",extras:[]});
-  const [extra,setExtra]=useState(""); const [busy,setBusy]=useState(false); const [done,setDone]=useState(false);
+interface Listing {
+  title: string;
+  price: string;
+  location: string;
+  size: string;
+  beds: string;
+  baths: string;
+  extras: string[];
+}
 
-  useEffect(()=>{ const n=layout==="premium"?7:5;
-    setSlots(Array(n).fill(0).map((_,i)=>({id:`s${i}`,file:null,url:null}))); },[layout]);
+export default function SmartflowApp() {
+  const [slots, setSlots] = useState<Slot[]>([]);
+  const [listing, setListing] = useState<Listing>({
+    title: "", price: "", location: "", size: "", beds: "", baths: "", extras: []
+  });
+  const [extra, setExtra] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
 
-  const addFiles=useCallback((files:File[],start:number)=>{
-    setSlots(p=>{
-      const next=[...p]; let i=start;
-      files.forEach(f=>{
-        while(i<next.length&&next[i].file)i++;
-        if(i<next.length){ next[i]={...next[i],file:f,url:URL.createObjectURL(f) }; i++; }
-      }); return next;
+  useEffect(() => {
+    setSlots(Array(5).fill(0).map((_, i) => ({
+      id: `s${i}`,
+      mode: 'image-to-video',
+      file1: null,
+      file2: null,
+      url1: null,
+      url2: null
+    })));
+  }, []);
+
+  const updateSlot = useCallback((index: number, updates: Partial<Slot>) => {
+    setSlots(prev => prev.map((slot, i) => 
+      i === index ? { ...slot, ...updates } : slot
+    ));
+  }, []);
+
+  const toggleMode = useCallback((index: number) => {
+    const currentMode = slots[index].mode;
+    const newMode = currentMode === 'image-to-video' ? 'frame-to-frame' : 'image-to-video';
+    updateSlot(index, {
+      mode: newMode,
+      file1: null,
+      file2: null,
+      url1: null,
+      url2: null
     });
-  },[]);
+  }, [slots, updateSlot]);
 
-  const swap=(a:number,b:number)=>setSlots(p=>{const n=[...p];[n[a],n[b]]=[n[b],n[a]];return n;});
-  const clear=(i:number)=>setSlots(p=>p.map((s,idx)=>idx===i?({...s,file:null,url:null}):s));
+  const handleFileUpload = useCallback((slotIndex: number, fileType: 'file1' | 'file2', file: File) => {
+    if (!file) return;
+    
+    const url = URL.createObjectURL(file);
+    updateSlot(slotIndex, {
+      [fileType]: file,
+      [fileType === 'file1' ? 'url1' : 'url2']: url
+    });
+  }, [updateSlot]);
 
-  const generate=async()=>{
-    if (!WEBHOOK) {
-      alert('Webhook URL is not configured. Please set VITE_MAKE_WEBHOOK environment variable.');
+  const clearSlot = useCallback((slotIndex: number) => {
+    updateSlot(slotIndex, {
+      file1: null,
+      file2: null,
+      url1: null,
+      url2: null
+    });
+  }, [updateSlot]);
+
+  const swapSlots = useCallback((fromIndex: number, toIndex: number) => {
+    setSlots(prev => {
+      const newSlots = [...prev];
+      [newSlots[fromIndex], newSlots[toIndex]] = [newSlots[toIndex], newSlots[fromIndex]];
+      return newSlots;
+    });
+  }, []);
+
+  const generate = async () => {
+    const filledSlots = slots.filter(s => s.file1);
+    if (filledSlots.length < 5 || !listing.title || !listing.price || !listing.location) {
+      alert("Otpremite 5 fotografija i popunite obavezna polja.");
       return;
     }
-    
-    const need=layout==="premium"?7:5;
-    const filledSlots = slots.filter(s => s.file);
-    if(filledSlots.length < need || !listing.title || !listing.price || !listing.location){
-      alert(`Otpremite ${need} fotki i popunite obavezna polja.`); return;
-    }
+
     setBusy(true);
 
     try {
-      // Create FormData for multipart/form-data request
       const formData = new FormData();
       
-      // Add all files with consistent naming
+      // Add images - for frame-to-frame, send both images for the slot
       slots.forEach((slot, index) => {
-        if (slot.file) {
-          formData.append(`image_${index}`, slot.file, slot.file.name);
+        if (slot.file1) {
+          formData.append(`image_${index}`, slot.file1, slot.file1.name);
+        }
+        if (slot.mode === 'frame-to-frame' && slot.file2) {
+          formData.append(`image_${index}_end`, slot.file2, slot.file2.name);
         }
       });
+
+      // Add slot modes so backend knows which are frame-to-frame
+      const slotModes = slots.map(slot => slot.mode);
+      formData.append('slot_modes', JSON.stringify(slotModes));
       
-      // Add listing data as individual fields (easier for Make.com to parse)
-      formData.append('layout', layout);
+      // Add listing data (matching your current structure exactly)
+      formData.append('layout', 'standard');
       formData.append('title', listing.title);
       formData.append('price', listing.price);
       formData.append('location', listing.location);
@@ -71,162 +123,349 @@ export default function App() {
       formData.append('baths', listing.baths);
       formData.append('extras', JSON.stringify(listing.extras));
       
-      // Add grouping information for video layout
-    // For premium layout, create proper keyframe pairs without duplicates
-const grouping = layout === "premium"
-  ? [
-      { files: [0, 1] },    // First keyframe pair (images 0-1)
-      { files: [2, 3] },    // Second keyframe pair (images 2-3)
-      { files: [4] },       // Single image
-      { files: [5] },       // Single image
-      { files: [6] }        // Single image
-    ]
-  : slots.map((_, i) => ({ files: [i] }));  // Standard: each image separate
-      
+      // Add grouping (keeping your current structure)
+      const grouping = slots.map((_, i) => ({ files: [i] }));
       formData.append('grouping', JSON.stringify(grouping));
       
       // Add metadata
       formData.append('timestamp', new Date().toISOString());
       formData.append('total_images', filledSlots.length.toString());
 
-      console.log('Sending webhook with data:', {
-        layout,
-        listing,
-        grouping,
-        imageCount: filledSlots.length
-      });
-      
-      // Send to webhook
       const response = await fetch(WEBHOOK, {
         method: 'POST',
         body: formData,
-        // Don't set Content-Type header - let browser set it with boundary for multipart/form-data
       });
       
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Webhook error response:', response.status, errorText);
-        throw new Error(`Webhook failed with status ${response.status}: ${errorText}`);
+        throw new Error(`Webhook failed with status ${response.status}`);
       }
       
-      const responseData = await response.text();
-      console.log('Webhook success response:', responseData);
-      
-      setDone(true); setTimeout(()=>setDone(false),4000);
+      setDone(true);
+      setTimeout(() => setDone(false), 4000);
       
     } catch (error) {
       console.error('Webhook error:', error);
-      alert(`Webhook error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      alert(`Greška: ${error instanceof Error ? error.message : 'Nepoznata greška'}`);
     } finally {
       setBusy(false);
     }
   };
 
- const label=(i:number)=>layout==="standard"?`Foto ${i+1}`:["1A","1B","2A","2B","3","4","5"][i];
- const kf=(i:number)=>layout==="premium"&&[0,1,2,3].includes(i);
+  const pushExtra = () => {
+    if (extra.trim()) {
+      setListing(l => ({ ...l, extras: [...l.extras, extra.trim()] }));
+      setExtra("");
+    }
+  };
 
-  return(
-  <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-indigo-50 via-white to-pink-50">
-    <div className="max-w-xl mx-auto bg-white/90 backdrop-blur rounded-3xl shadow-2xl p-8 space-y-8">
-      <header className="text-center space-y-2">
-        <h1 className="text-3xl font-bold flex justify-center gap-2"><Film className="h-8 w-8 text-indigo-600"/>AI Video</h1>
-        <p className="text-slate-500">Tri koraka do savršenog oglasa</p>
-      </header>
+  const remExtra = (i: number) => {
+    setListing(l => ({ ...l, extras: l.extras.filter((_, idx) => idx !== i) }));
+  };
 
-      <Step title="1. Raspored">
-        <div className="grid grid-cols-2 gap-4">
-          <Card act={layout==="standard"} on={()=>setLayout("standard")} icon={<Layers className="h-6 w-6"/>} t="Standard" d="5 klipova"/>
-          <Card act={layout==="premium"}  on={()=>setLayout("premium")}  icon={<Sparkles className="h-6 w-6 text-amber-500"/>} t="Premijum" d="Keyframe"/>
-        </div>
-      </Step>
-
-      <Step title="2. Fotografije">
-        <div className="grid grid-cols-5 gap-1">
-          {slots.map((s,i)=>(
-            <div key={s.id}
-              draggable={!!s.file}
-              onDragStart={e=>e.dataTransfer.setData("idx",String(i))}
-              onDragOver={e=>e.preventDefault()}
-              onDrop={e=>{
-                e.preventDefault();
-                const from=e.dataTransfer.getData("idx");
-                if(from) swap(+from,i); else addFiles(Array.from(e.dataTransfer.files),i);
-              }}
-              className={clsx("relative border-2 border-dashed rounded-xl bg-slate-50 overflow-hidden flex items-center justify-center",
-                "h-40 w-full min-w-[56px] max-w-[96px]")}
-            >
-              {s.url?(
-                <>
-                  <img src={s.url} className="absolute top-0 left-0 h-full w-full object-cover"/>
-                  <button onClick={()=>clear(i)} className="absolute top-1 right-1 bg-white/80 p-0.5 rounded-full z-10" onPointerDown={e=>e.stopPropagation()}>
-                    <X className="h-3 w-3"/>
-                  </button>
-                  <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-[10px] text-white px-1">{label(i)}</div>
-                </>
-              ):(
-                <label className="flex flex-col items-center justify-center h-full w-full cursor-pointer">
-                  <input type="file" multiple accept="image/*" className="hidden"
-                    onChange={e=>addFiles(Array.from((e.target as HTMLInputElement).files||[]),i)}/>
-                  <Upload className={clsx("h-6 w-6",kf(i)?"text-amber-500":"text-slate-400")}/>
-                  <span className="text-[10px] mt-1">{label(i)}</span>
-                </label>
-              )}
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
+      {/* Header */}
+      <div className="bg-gray-900/50 backdrop-blur-sm border-b border-gray-700">
+        <div className="max-w-6xl mx-auto px-6 py-4">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-gradient-to-r from-cyan-400 to-teal-400 rounded-lg flex items-center justify-center">
+                <Film className="text-gray-900" size={20} />
+              </div>
+              <h1 className="text-2xl font-bold text-white">smartflow</h1>
             </div>
-          ))}
-        </div>
-      </Step>
-
-      <Step title="3. Detalji">
-        <div className="grid sm:grid-cols-2 gap-4">
-          <Inp icon={Home} v={listing.title}  s={v=>setListing({...listing,title:v})}  l="Naslov" p="Luksuzna vila"/>
-          <Inp icon={DollarSign} v={listing.price}  s={v=>setListing({...listing,price:v})}  l="Cena" p="€450.000"/>
-          <Inp icon={MapPin} v={listing.location}  s={v=>setListing({...listing,location:v})} l="Lokacija" p="Blok 21"/>
-          <Inp icon={Ruler} v={listing.size}   s={v=>setListing({...listing,size:v})}  l="Površina" p="120"/>
-          <Inp icon={Bed} v={listing.beds}   s={v=>setListing({...listing,beds:v})}  l="Sobe" p="3"/>
-          <Inp icon={Bath} v={listing.baths}   s={v=>setListing({...listing,baths:v})}  l="Kupatila" p="2"/>
-        </div>
-        <div className="mt-3">
-          <label className="text-sm">Pogodnosti</label>
-          <div className="flex gap-2 mt-1">
-            <input value={extra} onChange={e=>setExtra(e.target.value)} onKeyDown={e=>e.key==="Enter"&&pushExtra()}
-              className="flex-1 px-3 py-2 border rounded-xl"/>
-            <button onClick={pushExtra} className="bg-slate-200 px-3 rounded-lg"><Plus className="h-4 w-4"/></button>
+            <div className="ml-auto">
+              <span className="text-sm text-gray-400">AI Video Generisanje</span>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2 mt-2">
-            {listing.extras.map((x,i)=>(
-              <span key={i} className="flex items-center px-3 py-1 bg-indigo-100 text-indigo-800 rounded-full text-sm">
-                {x}<button onClick={()=>remExtra(i)}><X className="h-3 w-3 ml-1"/></button>
-              </span>
+        </div>
+      </div>
+
+      <div className="max-w-4xl mx-auto px-6 py-8 space-y-8">
+        {/* Step 1: Images */}
+        <section className="space-y-6">
+          <h2 className="text-xl font-semibold text-white">1. Fotografije</h2>
+          
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            {slots.map((slot, index) => (
+              <div key={slot.id} className="bg-gray-800/30 backdrop-blur-sm rounded-xl p-4 border border-gray-700">
+                {/* Mode Toggle */}
+                <div className="mb-3">
+                  <div className="flex bg-gray-700 rounded-lg p-1">
+                    <button
+                      onClick={() => toggleMode(index)}
+                      className={`px-2 py-1 rounded text-xs font-medium transition-all flex-1 ${
+                        slot.mode === 'image-to-video' 
+                          ? 'bg-cyan-400 text-gray-900' 
+                          : 'text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      <Image size={12} className="inline mr-1" />
+                      Video
+                    </button>
+                    <button
+                      onClick={() => toggleMode(index)}
+                      className={`px-2 py-1 rounded text-xs font-medium transition-all flex-1 ${
+                        slot.mode === 'frame-to-frame' 
+                          ? 'bg-cyan-400 text-gray-900' 
+                          : 'text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      <Play size={12} className="inline mr-1" />
+                      Keyframe
+                    </button>
+                  </div>
+                </div>
+
+                {/* File Upload Areas */}
+                <div className="space-y-2">
+                  {/* First Image */}
+                  <div className="relative group">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleFileUpload(index, 'file1', file);
+                      }}
+                    />
+                    <div 
+                      className={`w-full h-24 border-2 border-dashed rounded-lg transition-all duration-300 ${
+                        slot.url1 ? 'border-cyan-400' : 'border-gray-600 hover:border-cyan-400'
+                      } bg-gray-800/50 backdrop-blur-sm flex items-center justify-center relative overflow-hidden`}
+                      draggable={!!slot.file1}
+                      onDragStart={(e) => e.dataTransfer.setData("slotIndex", String(index))}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        const fromIndex = e.dataTransfer.getData("slotIndex");
+                        if (fromIndex && fromIndex !== String(index)) {
+                          swapSlots(parseInt(fromIndex), index);
+                        }
+                      }}
+                    >
+                      {slot.url1 ? (
+                        <>
+                          <img src={slot.url1} alt="Slika 1" className="w-full h-full object-cover rounded" />
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              clearSlot(index);
+                            }}
+                            className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <X size={12} />
+                          </button>
+                        </>
+                      ) : (
+                        <div className="text-center">
+                          <Upload className="mx-auto mb-1 text-gray-400 group-hover:text-cyan-400" size={16} />
+                          <p className="text-xs text-gray-400">
+                            {slot.mode === 'frame-to-frame' ? 'Početni kadar' : `Foto ${index + 1}`}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Second Image (only for frame-to-frame) */}
+                  {slot.mode === 'frame-to-frame' && (
+                    <div className="relative group">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleFileUpload(index, 'file2', file);
+                        }}
+                      />
+                      <div className={`w-full h-24 border-2 border-dashed rounded-lg transition-all duration-300 ${
+                          slot.url2 ? 'border-cyan-400' : 'border-gray-600 hover:border-cyan-400'
+                        } bg-gray-800/50 backdrop-blur-sm flex items-center justify-center relative overflow-hidden`}
+                      >
+                        {slot.url2 ? (
+                          <>
+                            <img src={slot.url2} alt="Slika 2" className="w-full h-full object-cover rounded" />
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                updateSlot(index, { file2: null, url2: null });
+                              }}
+                              className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <X size={12} />
+                            </button>
+                          </>
+                        ) : (
+                          <div className="text-center">
+                            <Upload className="mx-auto mb-1 text-gray-400 group-hover:text-cyan-400" size={16} />
+                            <p className="text-xs text-gray-400">Završni kadar</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             ))}
           </div>
+        </section>
+
+        {/* Step 2: Property Details */}
+        <section className="space-y-6">
+          <h2 className="text-xl font-semibold text-white">2. Detalji nekretnine</h2>
+          
+          <div className="bg-gray-800/30 backdrop-blur-sm rounded-xl p-6 border border-gray-700">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-300 flex items-center gap-2">
+                  <Home size={16} />
+                  Naslov
+                </label>
+                <input
+                  type="text"
+                  value={listing.title}
+                  onChange={(e) => setListing(prev => ({ ...prev, title: e.target.value }))}
+                  className="w-full px-4 py-3 bg-gray-700/50 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 transition-colors"
+                  placeholder="Luksuzna vila"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-300 flex items-center gap-2">
+                  <DollarSign size={16} />
+                  Cena
+                </label>
+                <input
+                  type="text"
+                  value={listing.price}
+                  onChange={(e) => setListing(prev => ({ ...prev, price: e.target.value }))}
+                  className="w-full px-4 py-3 bg-gray-700/50 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 transition-colors"
+                  placeholder="€450.000"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-300 flex items-center gap-2">
+                  <MapPin size={16} />
+                  Lokacija
+                </label>
+                <input
+                  type="text"
+                  value={listing.location}
+                  onChange={(e) => setListing(prev => ({ ...prev, location: e.target.value }))}
+                  className="w-full px-4 py-3 bg-gray-700/50 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 transition-colors"
+                  placeholder="Vračar"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-300 flex items-center gap-2">
+                  <Ruler size={16} />
+                  Površina (m²)
+                </label>
+                <input
+                  type="text"
+                  value={listing.size}
+                  onChange={(e) => setListing(prev => ({ ...prev, size: e.target.value }))}
+                  className="w-full px-4 py-3 bg-gray-700/50 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 transition-colors"
+                  placeholder="120"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-300 flex items-center gap-2">
+                  <Bed size={16} />
+                  Sobe
+                </label>
+                <input
+                  type="text"
+                  value={listing.beds}
+                  onChange={(e) => setListing(prev => ({ ...prev, beds: e.target.value }))}
+                  className="w-full px-4 py-3 bg-gray-700/50 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 transition-colors"
+                  placeholder="3"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-300 flex items-center gap-2">
+                  <Bath size={16} />
+                  Kupatila
+                </label>
+                <input
+                  type="text"
+                  value={listing.baths}
+                  onChange={(e) => setListing(prev => ({ ...prev, baths: e.target.value }))}
+                  className="w-full px-4 py-3 bg-gray-700/50 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 transition-colors"
+                  placeholder="2"
+                />
+              </div>
+            </div>
+
+            {/* Extras */}
+            <div className="mt-6 space-y-3">
+              <label className="text-sm font-medium text-gray-300">Pogodnosti</label>
+              <div className="flex gap-2">
+                <input
+                  value={extra}
+                  onChange={(e) => setExtra(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && pushExtra()}
+                  className="flex-1 px-4 py-3 bg-gray-700/50 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 transition-colors"
+                  placeholder="Garaža, Terasa..."
+                />
+                <button
+                  onClick={pushExtra}
+                  className="bg-cyan-400 hover:bg-cyan-300 text-gray-900 px-4 rounded-lg transition-colors"
+                >
+                  <Plus size={20} />
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {listing.extras.map((x, i) => (
+                  <span key={i} className="flex items-center px-3 py-1 bg-cyan-400/20 text-cyan-400 rounded-full text-sm border border-cyan-400/30">
+                    {x}
+                    <button onClick={() => remExtra(i)} className="ml-2 hover:text-cyan-300">
+                      <X size={12} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Generate Button */}
+        <div className="text-center">
+          <button
+            onClick={generate}
+            disabled={busy || done}
+            className={`px-8 py-4 rounded-xl font-semibold text-lg transition-all duration-300 ${
+              busy || done
+                ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                : 'bg-gradient-to-r from-cyan-400 to-teal-400 text-gray-900 hover:from-cyan-300 hover:to-teal-300 transform hover:scale-105 shadow-lg hover:shadow-cyan-400/25'
+            }`}
+          >
+            {busy ? (
+              <div className="flex items-center gap-3">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Generišem video...
+              </div>
+            ) : done ? (
+              <div className="flex items-center gap-3">
+                <CheckCircle2 className="w-5 h-5" />
+                Poslato!
+              </div>
+            ) : (
+              <div className="flex items-center gap-3">
+                <Sparkles className="w-5 h-5" />
+                Generiši profesionalni video
+              </div>
+            )}
+          </button>
         </div>
-      </Step>
-
-      <button onClick={generate} disabled={busy||done}
-        className={clsx("w-full py-3 rounded-xl font-semibold flex justify-center gap-2",
-          busy?"bg-slate-300 text-slate-500":done?"bg-green-500 text-white":"bg-indigo-600 text-white hover:bg-indigo-700")}>
-        {busy?<><Loader2 className="h-5 w-5 animate-spin"/> Generišem…</>:
-         done?<><CheckCircle2 className="h-5 w-5"/> Poslato!</>:
-         <><Sparkles className="h-5 w-5"/> Generiši Video</>}
-      </button>
+      </div>
     </div>
-  </div>);
-
-  function pushExtra(){ if(extra.trim()) setListing(l=>({...l,extras:[...l.extras,extra.trim()]})); setExtra(""); }
-  function remExtra(i:number){ setListing(l=>({...l,extras:l.extras.filter((_,idx)=>idx!==i)})); }
+  );
 }
-const Step=({title,children}:{title:string;children:React.ReactNode})=>
-  (<section className="space-y-3"><h2 className="font-bold">{title}</h2>{children}</section>);
-const Card=({act,on,icon,t,d}:{act:boolean;on:()=>void;icon:React.ReactNode;t:string;d:string})=>
-  (<button onClick={on} className={clsx("p-4 rounded-xl border-2 space-y-1",act?"border-indigo-600 bg-indigo-50":"border-slate-200 bg-white hover:border-indigo-300")}>
-    <div className="flex gap-2 font-bold">{icon}{t}</div><p className="text-sm">{d}</p>
-  </button>);
-const Inp=({icon:Icon,l,p,v,s}:{icon:React.ElementType;l:string;p:string;v:string;s:(x:string)=>void})=>
-  (<div className="space-y-1">
-    <label className="text-sm">{l}</label>
-    <div className="relative">
-      <Icon className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
-      <input value={v} onChange={e=>s(e.target.value)} placeholder={p}
-        className="w-full pl-10 pr-3 py-2 border rounded-xl bg-white/70"/>
-    </div>
-  </div>);
